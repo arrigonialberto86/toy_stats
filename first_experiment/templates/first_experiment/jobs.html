@@ -1,0 +1,275 @@
+{% extends "first_experiment/base.html" %}
+   {% block title %}experiment{% endblock %}
+   {% block content %} 
+
+    <h1>Jobs search by location</h1>
+    <ol class="breadcrumb">
+      <li>Search for jobs by location on Indeed (location could be empty to search the whole world)</li>
+    </ol>
+	<div>
+	  <div class="form-group">
+	    <label>Jobs title </label>
+	    <p class='text-muted'>(e.g. 'Data scientist', 'Software engineeer', 'Bioinformatician' ...) keep in mind that Indeed is for US only!</p>
+	    <input class="form-control" id="jobs_name" placeholder="Jobs title or keyword">
+	  </div>
+	  <div class="form-group">
+	    <label>Location</label>
+	    <p class='text-muted'>(e.g. 'Los Angeles', 'Boston', 'London' ...)</p>
+	    <input class="form-control" id="jobs_location" placeholder="Location...">
+	  </div>
+	  <button type="button" class="btn btn-default" id="jobs_btn">Submit</button>
+	</div>
+
+    <br><br>
+	<div id='lsa_div'>
+	</div>
+
+    {% load staticfiles %}
+    <br><br><br>
+    <div class="row">
+        <div class="col-md-2 col-md-offset-5" id='waiting_div'>
+            <p class='bg-primary'>LSA analysis may take about 30 seconds...</p>
+            <img id='waiting_gif' src="{% static "first_experiment/loading.gif" %}" alt="My image"/>
+        </div>
+    </div>
+    <div id='graphs'>
+    </div>
+
+    <div id='job_df_div'>
+    </div>
+
+
+	<div class="modal fade bs-example-modal-lg" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel">
+	  <div class="modal-dialog modal-lg">
+	    <div class="modal-content">
+		    {% load staticfiles %}
+		    <br><br><br>
+		    <div class="row">
+		        <div class="col-md-2 col-md-offset-2" id='waiting_div'><img id='waiting_gif_modal' src="{% static "first_experiment/loading.gif" %}" alt="My image"/></div>
+		    </div>
+		    <div id='wordcloud_div' class='row'>
+		    	<div class="col-md-2 col-md-offset-2">
+				    <canvas id="wordcloud_canvas" width="512" height="192" style=""></canvas>
+			    	<canvas id="cloud" width="512" height="192" style="display: none;"></canvas>
+			    </div>
+			</div>
+	        <div class="modal-footer">
+	            <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+	        </div>
+	    </div>
+	  </div>
+	</div>
+
+<script>
+
+$( document ).ready(function() {
+    $('#waiting_div').hide()
+    $('#waiting_gif_modal').hide()
+});
+
+$('#jobs_btn').click(function(){
+    //console.log($("#query_txt").val())
+    $('#waiting_div').show()
+    $('#graphs').hide()
+    $( "#job_df_div" ).hide()
+    $( "#lsa_div" ).hide()
+    $.ajax({
+        type: 'POST',
+        url: '/first_experiment/jobs_search',
+        data: { 
+			'csrfmiddlewaretoken': '{{ csrf_token }}',
+            'jobs_name': $("#jobs_name").val(),
+            'jobs_location': $("#jobs_location").val()
+        },
+        success: function(msg){
+            $('#waiting_div').hide()
+            $('#graphs').show()
+            $( "#job_df_div" ).show()
+            //$("#graphs").html('<p>'+msg+'<p>');
+            var data_ajax = JSON.parse(msg)
+            $( "#job_df_div" ).html(data_ajax['jobs_dict']);
+            $(".jobs_table_pd").DataTable()
+            //console.log(data_ajax['lsa_results'])
+    		$( "#lsa_div" ).show()
+            scatter_plot(data_ajax['lsa_results'],'lsa_div')
+        },
+        error: function (err) {
+                alert('No jobs found for this location!');
+                $('#waiting_div').hide()
+        }
+    });
+});
+
+//$( ".wordcloud_btn" ).click(function() {
+//$(".wordcloud_btn").on("click", function(){
+$( "body" ).on( "click",'.wordcloud_btn', function() {
+    data_url = $(this).data('url')
+    $('#waiting_gif_modal').show()
+    $('#wordcloud_div').hide()
+    $.ajax({
+        type: 'POST',
+        url: '/first_experiment/jobs_wordcloud',
+        data: { 
+			'csrfmiddlewaretoken': '{{ csrf_token }}',
+            'job_url': $(this).data('url'),
+        },
+        success: function(msg){
+        	//$('#wordcloud_canvas').html("")
+            data_ajax = JSON.parse(msg)
+            $('#waiting_gif_modal').hide()
+    		$('#wordcloud_div').show()
+			//$('#wordcloud_div').jQCloud(data_ajax);
+			getCloud(data_ajax, 'bold italic', 'Amaranth', 'wordcloud_canvas', 'cloud');
+
+        }
+    });
+
+});
+
+function scatter_plot(data,div_name) {
+    $('#'+div_name).highcharts({
+        chart: {
+            defaultSeriesType: 'scatter'
+        },
+        
+        xAxis: {
+            type: 'category'
+        },
+        title: {
+            text: 'Latent Semantic Similarity (LSA) analysis'
+        },
+        subtitle: {
+            text: '(powered by scikit-learn)'
+        },
+        plotOptions: {
+           scatter: {
+              marker: {
+                 radius: 4,
+                 states: {
+                    hover: {
+                       enabled: true,
+                       lineColor: 'rgb(100,100,100)'
+                    }
+                 }
+              },
+              states: {
+                 hover: {
+                    marker: {
+                       enabled: false
+                    }
+                 }
+              }
+           }
+        },
+        series: [{
+            tooltip: {
+         
+         headerFormat: '<b>{series.name}</b><br>',
+         pointFormat: '{point.Name}<br/>'
+                        },
+            name: 'LSA',
+            data: data
+        }]
+    });
+};
+
+var OFFSET = 8;
+
+function getFont(style, size, name) {
+    return (style + ' ' + size + 'px ' + name);
+}
+
+function measureText(text, font, size, context) {
+    context.font = font;
+    var metrics = context.measureText(text);
+    return {
+        width: metrics.width + 2 * OFFSET,
+        height: Math.round(size * 1.5)
+    };
+}
+
+function putText(text, font, x, y, context) {
+    context.font = font;
+    context.textBaseline = 'top';
+    context.fillStyle = 'rgba(255, 0, 0, 0.5)';
+    context.fillText(text, x, y);
+}
+
+function testCollision(pixels) {
+    var i;
+
+    for (i = 0; i < pixels.length; i += 4) {
+        if (pixels[i + 3] > 128) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function getCloud(data, style, name, testid, cloudid) {
+    var canvasTest = document.getElementById(testid);
+    var contextTest = canvasTest.getContext("2d");
+    var canvasCloud = document.getElementById(cloudid);
+    var contextCloud = canvasCloud.getContext("2d");
+    contextTest.clearRect(0, 0, canvasCloud.width, canvasCloud.height);
+
+    var w = 512;
+    var h = 192;
+
+    var i;
+
+    for (i = 0; i < data.length; i++) {
+        var m = data[i];
+        var text = m[0];
+        var size = m[1];
+        var col = true;
+        var max = 10;
+        var font = getFont(style, size, name);
+        var measure = measureText(text, font, size, contextTest);
+
+        while (col && (max-- > 0)) {
+
+
+            var x = Math.round(Math.random() * (w - measure.width - OFFSET)) + 2 * OFFSET;
+            var y = Math.round(Math.random() * (h - measure.height));
+
+            var bx = x - OFFSET;
+            bx = (bx < 0) ? 0 : bx;
+            var by = y;
+            var bw = measure.width;
+            var bh = measure.height;
+
+            contextCloud.drawImage(contextTest.canvas, bx, by, bw, bh, bx, by, bw, bh);
+            putText(text, font, x, y, contextTest);
+
+            var img = contextTest.getImageData(bx, by, bw, bh);
+            col = testCollision(img.data);
+
+            if (col) {
+                contextTest.clearRect(bx, by, bw, bh);
+                contextTest.drawImage(contextCloud.canvas, bx, by, bw, bh, bx, by, bw, bh);
+                size = Math.max(Math.round(size * 0.85), 10);
+                font = getFont(style, size, name);
+                measure = measureText(text, font, size, contextTest);
+            }
+
+            contextCloud.clearRect(bx, by, bw, bh);
+        }
+    }
+}
+
+
+
+</script>
+
+   {% endblock %}
+
+
+
+
+
+
+
+
+

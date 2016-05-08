@@ -1,0 +1,237 @@
+{% extends "first_experiment/base.html" %}
+   {% block title %}experiment{% endblock %}
+   {% block content %} 
+    <h1>Most trending topics</h1>
+    <ol class="breadcrumb">
+      <li>Search for trending topics by geolocation (supported are 'USA','Italy','Germany','Milan')</li>
+    </ol>
+    <div class="col-lg-6">
+    <div class="input-group">
+      <input type="text" class="form-control" id='trends_txt' placeholder="Search for...">
+      <span class="input-group-btn">
+        <button class="btn btn-default" type="button" id='trends_btn'>Go!</button>
+      </span>
+    </div><!-- /input-group -->
+    </div><!-- /.col-lg-6 -->
+
+    <div>
+      <table id='trends_table'>
+      </table>
+    </div>
+
+    <br>
+    <br>
+    <div id='query'>
+        <h1>Search Twitter by keyword</h1>
+        <ol class="breadcrumb">
+          <li>Search for an hashtag on Twitter and </li>
+        </ol>
+        <div class="col-lg-6">
+        <div class="input-group">
+          <input type="text" class="form-control" id='query_txt' placeholder="Search for...">
+          <span class="input-group-btn">
+            <button class="btn btn-default" type="button" id='query_btn'>Go!</button>
+          </span>
+        </div><!-- /input-group -->
+        </div><!-- /.col-lg-6 -->
+    </div>
+
+    {% load staticfiles %}
+    <br><br><br>
+
+    <div class="row">
+        <div class="col-md-2 col-md-offset-5" id='waiting_div'><img id='waiting_gif' src="{% static "first_experiment/loading.gif" %}" alt="My image"/></div>
+    </div>
+
+    <div id='graphs' style="margin-bottom:100px;">
+        <div id='retweeted'></div>
+        <div id='not_retweeted'></div>
+        <div class="row">
+            <div class="col-md-6" id='pie_chart' style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"></div>
+            <div class="col-md-6" id='bar_chart_users' style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"></div>
+        </div>
+        <div class="row">
+            <div class="col-md-6" id='bar_chart_location' style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"></div>
+            <!--<div class="col-md-6" id='wc_div' style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto">
+                <img id='wordcloud' style="min-width: 310px; height: 400px; max-width: 600px; margin: 0 auto"  src="{% static "first_experiment/wc.png" %}" alt="My image"/>
+            </div>-->
+    </div>
+    <div id ='query_div' style = 'padding-top: 2cm;'></div>
+
+<script>
+
+
+$('#trends_btn').click(function(){
+    //console.log($("#trends_txt").val())
+    $.ajax({
+        type: 'POST',
+        url: '/first_experiment/trends',    
+        data: {
+            csrfmiddlewaretoken: '{{ csrf_token }}', 
+            'country': $("#trends_txt").val()
+        },
+        success: function(msg){
+            console.log(msg)
+            var dataSet = JSON.parse(msg)
+
+            if ( typeof table != 'undefined' ) {
+                table.destroy()
+                table = $('#trends_table').DataTable( {
+                    data: dataSet,
+                    columns: [
+                        { title: "Hashtag list" },
+
+                    ]
+                } );
+            }
+            else {
+                table = $('#trends_table').DataTable( {
+                    data: dataSet,
+                    columns: [
+                        { title: "Hashtag list" },
+
+                    ]
+                } );
+            }
+        },
+        error: function (request, status, error) {
+            alert('Sorry, rate limit exceeded!');
+        }
+    });
+});
+
+$('#query_btn').click(function(){
+    //console.log($("#query_txt").val())
+    $('#waiting_gif').show()
+    $('#graphs').hide()
+    $.ajax({
+        type: 'POST',
+        url: '/first_experiment/query',
+        data: { 
+            csrfmiddlewaretoken: '{{ csrf_token }}',
+            'query': $("#query_txt").val()
+        },
+        success: function(msg){
+            $('#waiting_gif').hide()
+            $('#graphs').show()
+            var data_ajax = JSON.parse(msg)
+            //console.log(data_ajax)
+            $( "#query_div" ).html(data_ajax['dataframe']);
+            $(".query_table_pd").DataTable()
+            $("#retweeted").html('<p>Number of original posts: '+data_ajax['retweet_stats'][0]+'</p>')
+            $("#not_retweeted").html('<p>Number of original posts: '+data_ajax['retweet_stats'][1]+'</p>')
+            $('#pie_chart').show()
+            var languages = JSON.parse(data_ajax['languages'])
+            var users = JSON.parse(data_ajax['users'])
+            var location = JSON.parse(data_ajax['location'])
+            pie_chart(languages,'pie_chart')
+            top_users = users.slice(1,9)
+            bar_chart(top_users,'bar_chart_users','blue','Most active users')
+            bar_chart(location,'bar_chart_location','red','Tweets locations')
+            $('#wordcloud').attr("src",$('#wordcloud').attr("src")+'?Math.floor((Math.random() * 1000) + 1);')
+            //console.log($('#wordcloud').attr("src"))
+            $('#wordcloud').show()
+        }
+    });
+});
+
+function pie_chart(data,div_name) {
+    $('#'+div_name).highcharts({
+        chart: {
+            plotBackgroundColor: null,
+            plotBorderWidth: null,
+            plotShadow: false,
+            type: 'pie'
+        },
+        title: {
+            text: 'Tweets language distribution'
+        },
+        tooltip: {
+            pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
+        },
+        plotOptions: {
+            pie: {
+                allowPointSelect: true,
+                cursor: 'pointer',
+                dataLabels: {
+                    enabled: true,
+                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
+                    style: {
+                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+                    }
+                }
+            }
+        },
+        series: [{
+            name: 'Language',
+            colorByPoint: true,
+            data: data
+        }]
+    });
+};
+
+function bar_chart(data,div_name,color,title) {
+$('#'+div_name).highcharts({
+    chart: {
+        type: 'column'
+    },
+    title: {
+        text: title
+    },
+    //width: '100%',
+    //height: '100%',
+    xAxis: {
+        type: 'category',
+        labels: {
+            rotation: -45,
+            style: {
+                fontSize: '13px',
+                fontFamily: 'Verdana, sans-serif'
+            }
+        }
+    },
+    yAxis: {
+        title: {
+            text: 'Number of tweets'
+        }
+    },
+    legend: {
+        enabled: false
+    },
+    tooltip: {
+        pointFormat: 'Number of tweets: <b>{point.y:.1f} tweets</b>'
+    },
+    plotOptions: {
+      series: {
+        pointWidth: 20,
+        groupPadding: 0}
+    },
+    series: [{
+        name: 'Tweets',
+        data: data,
+        dataLabels: {
+            enabled: false,
+            rotation: -90,
+            color: color,
+            align: 'right',
+            format: '{point.y:.1f}', // one decimal
+            y: 10, // 10 pixels down from the top
+            style: {
+                fontSize: '13px',
+                fontFamily: 'Verdana, sans-serif'
+            }
+        }
+    }]
+});
+};  
+
+
+$( document ).ready(function() {
+    $('#pie_chart').hide()
+    $('#wordcloud').hide()
+    $('#waiting_gif').hide()
+});
+
+</script>
+
+   {% endblock %}
